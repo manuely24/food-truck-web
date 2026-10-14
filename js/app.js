@@ -28,6 +28,12 @@ const iconosPorCategoria = {
 };
 const carrito = [];
 
+function obtenerApiBaseUrl() {
+  return typeof window.FOOD_TRUCK_API_URL === 'string'
+    ? window.FOOD_TRUCK_API_URL.trim().replace(/\/+$/, '')
+    : '';
+}
+
 function aplicarEstilos() {
   if (document.getElementById('urban-tacos-theme')) return;
 
@@ -81,6 +87,8 @@ function aplicarEstilos() {
     .cart-items li { align-items: center; border-bottom: 1px solid var(--line); display: flex; font: .85rem sans-serif; gap: .7rem; justify-content: space-between; padding: .65rem 0; }
     .cart-items small { color: var(--muted); display: block; margin-top: .2rem; }
     .cart-total { display: flex; font: 700 1rem sans-serif; justify-content: space-between; padding-top: .5rem; }
+    .checkout-button { background: var(--primary); border: 0; border-radius: 999px; color: #fff; cursor: pointer; font: 700 .85rem sans-serif; margin-top: .9rem; padding: .8rem 1rem; width: 100%; }
+    .checkout-button:disabled { cursor: wait; opacity: .65; }
     .cart-empty { color: var(--muted); font: .88rem sans-serif; padding: .7rem 0; }
     .toast { align-items: center; display: flex; gap: .5rem; }
     .menu-tools { align-items: center; display: flex; flex-wrap: wrap; gap: .7rem; justify-content: space-between; margin-bottom: 1.4rem; }
@@ -152,10 +160,10 @@ function agregarFooter() {
   if (document.querySelector('.site-footer')) return;
   document.body.insertAdjacentHTML('beforeend', `
     <footer class="site-footer">
-      <div><h3>🌮 Urban Tacos</h3><p>Sabor callejero, ingredientes honestos y noches memorables.</p></div>
-      <div><h4>Visítanos</h4><p>Mar - Dom<br>12:00 - 22:00<br>Cra. 7 # 72-41, Bogotá</p></div>
-      <div><h4>Contacto</h4><p>+57 310 555 2020<br>hola@urbantacos.co</p></div>
-      <div><h4>Encuéntranos</h4><a href="#">Instagram</a><a href="#">TikTok</a><a href="#">WhatsApp</a></div>
+      <div><h3>🌮 Urban Tacos</h3><p>Prototipo académico de menú y panel de administración.</p></div>
+      <div><h4>Alcance</h4><p>La demo no recibe ni procesa pedidos reales.</p></div>
+      <div><h4>Datos</h4><p>El catálogo y las ventas son registros ficticios de demostración.</p></div>
+      <div><h4>Vistas</h4><a href="index.html">Menú</a><a href="admin.html">Panel de administración</a></div>
     </footer>
   `);
 }
@@ -181,11 +189,45 @@ function renderizarCarrito() {
   total.textContent = `$${carrito.reduce((sum, item) => sum + item.cantidad * item.precio, 0).toLocaleString('es-CO')}`;
 }
 
+async function enviarPedido() {
+  const apiBaseUrl = obtenerApiBaseUrl();
+  if (!apiBaseUrl) {
+    mostrarToast('Modo demostración: el pedido no se envió.');
+    return;
+  }
+  if (!carrito.length) {
+    mostrarToast('Agrega al menos un producto al pedido.');
+    return;
+  }
+
+  const button = document.querySelector('.checkout-button');
+  button.disabled = true;
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/v1/orders`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        items: carrito.map(item => ({ productId: item.id_plato, quantity: item.cantidad }))
+      })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'No se pudo registrar el pedido.');
+
+    carrito.length = 0;
+    renderizarCarrito();
+    mostrarToast(`Pedido #${result.orderId} registrado.`);
+  } catch (error) {
+    mostrarToast(error.message || 'No se pudo conectar con la API.');
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function prepararCarrito(carta) {
   const nav = document.querySelector('header nav');
   if (!nav || !document.getElementById('menu-grid') || document.querySelector('.cart-trigger')) return;
   nav.insertAdjacentHTML('beforeend', '<button class="cart-trigger" type="button" aria-expanded="false" aria-controls="cart-panel">🛒 Pedido <span class="cart-count">0</span></button>');
-  document.body.insertAdjacentHTML('beforeend', '<aside class="cart-panel" id="cart-panel" hidden><div class="cart-header"><h2>Tu pedido</h2><button class="cart-close" type="button" aria-label="Cerrar pedido">×</button></div><ul class="cart-items"></ul><div class="cart-total"><span>Total</span><strong>$0</strong></div></aside>');
+  document.body.insertAdjacentHTML('beforeend', '<aside class="cart-panel" id="cart-panel" hidden><div class="cart-header"><h2>Tu pedido</h2><button class="cart-close" type="button" aria-label="Cerrar pedido">×</button></div><ul class="cart-items"></ul><div class="cart-total"><span>Total</span><strong>$0</strong></div><button class="checkout-button" type="button">Confirmar pedido</button></aside>');
   const trigger = document.querySelector('.cart-trigger');
   const panel = document.getElementById('cart-panel');
   trigger.addEventListener('click', () => {
@@ -196,14 +238,15 @@ function prepararCarrito(carta) {
     panel.hidden = true;
     trigger.setAttribute('aria-expanded', 'false');
   });
+  panel.querySelector('.checkout-button').addEventListener('click', enviarPedido);
   document.getElementById('menu-grid')?.addEventListener('click', event => {
     const button = event.target.closest('.order-button');
     if (!button) return;
-    const plato = carta.find(item => item.plato === button.dataset.dish);
+    const plato = carta.find(item => item.id_plato === button.dataset.productId);
     if (!plato) return;
     const existente = carrito.find(item => item.plato === plato.plato);
     if (existente) existente.cantidad += 1;
-    else carrito.push({ plato: plato.plato, precio: plato.precio_venta, cantidad: 1 });
+    else carrito.push({ id_plato: plato.id_plato, plato: plato.plato, precio: plato.precio_venta, cantidad: 1 });
     renderizarCarrito();
     mostrarToast(`✓ ${plato.plato} agregado al pedido`);
   });
@@ -279,7 +322,7 @@ function renderizarMenu(carta) {
             <span class="stock-tag${stockCritico ? ' critical' : ''}">${stockCritico ? '⚠️ Últimas unidades' : '★ Favorito'}</span>
             <p class="price">$${item.precio_venta.toLocaleString('es-CO')}</p>
           </div>
-          <button class="order-button" type="button" data-dish="${item.plato}">Agregar al pedido +</button>
+          <button class="order-button" type="button" data-product-id="${item.id_plato}">Agregar al pedido +</button>
         </div>
       </article>
     `;
@@ -302,11 +345,16 @@ function renderizarInventario(carta) {
 
 function obtenerPedidosPorPeriodo(pedidos, periodo) {
   if (periodo === 'todos' || !pedidos.length) return pedidos;
-  const fechas = pedidos.map(pedido => new Date(`${pedido.fecha}T00:00:00`).getTime());
-  const fechaReferencia = Math.max(...fechas);
+  const fechaReferencia = new Date();
+  fechaReferencia.setHours(0, 0, 0, 0);
   const dias = periodo === 'hoy' ? 0 : periodo === 'semana' ? 6 : 29;
-  const limite = fechaReferencia - dias * 24 * 60 * 60 * 1000;
-  return pedidos.filter(pedido => new Date(`${pedido.fecha}T00:00:00`).getTime() >= limite);
+  const limite = new Date(fechaReferencia);
+  limite.setDate(limite.getDate() - dias);
+
+  return pedidos.filter(pedido => {
+    const fechaPedido = new Date(`${pedido.fecha}T00:00:00`);
+    return !Number.isNaN(fechaPedido.getTime()) && fechaPedido >= limite && fechaPedido <= fechaReferencia;
+  });
 }
 
 function renderizarDashboard(carta, pedidos) {
@@ -357,8 +405,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   prepararHero();
   agregarFooter();
   try {
+    const apiBaseUrl = obtenerApiBaseUrl();
     const [resCarta, resPedidos] = await Promise.all([
-      fetch('data/carta.json'),
+      fetch(apiBaseUrl ? `${apiBaseUrl}/api/v1/products` : 'data/carta.json'),
       fetch('data/pedidos.json')
     ]);
     if (!resCarta.ok || !resPedidos.ok) throw new Error('No se pudieron cargar los datos.');

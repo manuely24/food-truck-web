@@ -1,0 +1,1 @@
+window.FOOD_TRUCK_API_URL = "";
